@@ -3,12 +3,18 @@
 
 #include <string>
 #include <vector>
+#include <cmath>
+#include <chrono>
+#include <thread>
 
 #include "pluginlib/class_list_macros.hpp"
 #include "rclcpp/rclcpp.hpp"
 
 namespace phantomx_pincher_hardware
 {
+
+// AX-12A: 1024 ticks cover 300 degrees
+constexpr double RAD_PER_TICK = (300.0 * M_PI / 180.0) / 1024.0;
 
 PhantomxPincherHardware::CallbackReturn PhantomxPincherHardware::on_init(
   const hardware_interface::HardwareInfo & info)
@@ -33,6 +39,7 @@ PhantomxPincherHardware::CallbackReturn PhantomxPincherHardware::on_init(
   if (it != info_.hardware_parameters.end()) {
     baud_rate_ = std::stoi(it->second);
   }
+
 
   RCLCPP_INFO(
     rclcpp::get_logger("PhantomxPincherHardware"),
@@ -69,22 +76,99 @@ PhantomxPincherHardware::export_command_interfaces()
 PhantomxPincherHardware::CallbackReturn PhantomxPincherHardware::on_activate(
   const rclcpp_lifecycle::State &)
 {
-  // Placeholder: later this opens the serial port and switches the servos on
+  auto logger = rclcpp::get_logger("PhantomxPincherHardware");
+
+  if (!driver_.open(port_, baud_rate_)) {
+    RCLCPP_ERROR(logger, "Could not open serial port %s", port_.c_str());
+    return CallbackReturn::ERROR;
+  }
+  driver_.wakeUpSerial();
+  
+    // The ArbotiX board resets when the port opens: give it time to boot
+  std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+  driver_.wakeUpSerial();
+
+  // READ-ONLY version: torque is NOT enabled, so the arm can be moved by hand.
+  // read() updates one servo per call, so 5 calls read all 5 servos once.
+  for (int i = 0; i < 5; ++i) {
+    bool ok = false;
+    for (int attempt = 0; attempt < 3 && !ok; ++attempt) {
+      ok = (read(rclcpp::Time(0), rclcpp::Duration(0, 0)) ==
+            hardware_interface::return_type::OK);
+    }
+    if (!ok) {
+      RCLCPP_ERROR(logger, "Could not read the servos (is the 12V power on?)");
+      driver_.close();
+      return CallbackReturn::ERROR;
+    }
+  }
+  // Start with commands equal to the measured positions
   hw_commands_ = hw_positions_;
+
+  for (uint8_t id = 1; id <= 5; ++id) {
+    RCLCPP_INFO(logger, "Servo %d: %d ticks", id, last_ticks_[id]);
+  }
+    initialised_ = true;
   return CallbackReturn::SUCCESS;
 }
 
 PhantomxPincherHardware::CallbackReturn PhantomxPincherHardware::on_deactivate(
   const rclcpp_lifecycle::State &)
 {
-  // Placeholder: later this switches the servos off and closes the port
+  driver_.close();
   return CallbackReturn::SUCCESS;
 }
 
 hardware_interface::return_type PhantomxPincherHardware::read(
   const rclcpp::Time &, const rclcpp::Duration &)
 {
-  // Placeholder: later this reads the real servo positions
+
+  // Read ONE servo per call: a serial round trip takes about 3 ms,
+  // the controller cycle is 4 ms, so 5 servos would not fit in one cycle.
+  const uint8_t id = next_servo_;
+  uint16_t ticks = 0;
+  if (!driver_.read_position(id, ticks)) {
+    if (!initialised_ || ++failures_ > 50) {
+      RCLCPP_ERROR(
+        rclcpp::get_logger("PhantomxPincherHardware"), "Failed to read servo %d", id);
+      return hardware_interface::return_type::ERROR;
+    }
+    // Transient failure: keep the previous value and try the next servo
+    RCLCPP_WARN(
+      rclcpp::get_logger("PhantomxPincherHardware"),
+      "Skipped a failed read of servo %d (%d in a row)", id, failures_);
+    next_servo_ = (id % 5) + 1;
+    return hardware_interface::return_type::OK;
+  }
+  failures_ = 0;
+  last_ticks_[id] = ticks;
+
+  // Convert ticks to the joint value(s) driven by this servo
+  for (size_t i = 0; i < servo_ids_.size(); ++i) {
+    if (servo_ids_[i] != id) {
+      continue;
+    }
+    if (i < 4) {
+      // arm joints: radians relative to the neutral position
+      hw_positions_[i] = (ticks - neutral_ticks_[i]) * RAD_PER_TICK;
+    } else {
+      // finger joints: linear map between closed and open (placeholder calibration)
+      const double fraction =
+        (ticks - gripper_closed_ticks_) / (gripper_open_ticks_ - gripper_closed_ticks_);
+      hw_positions_[i] = fraction * finger_max_opening_;
+    }
+  }
+
+  // next servo: 1 -> 2 -> 3 -> 4 -> 5 -> 1 ...
+  next_servo_ = (id % 5) + 1;
+
+  // once per second (250 cycles), print the raw ticks so we can calibrate the gripper
+  if (++cycle_count_ % 250 == 0) {
+    RCLCPP_INFO(
+      rclcpp::get_logger("PhantomxPincherHardware"),
+      "ticks: pan=%d lift=%d elbow=%d wrist=%d gripper=%d",
+      last_ticks_[1], last_ticks_[2], last_ticks_[3], last_ticks_[4], last_ticks_[5]);
+  }
   return hardware_interface::return_type::OK;
 }
 

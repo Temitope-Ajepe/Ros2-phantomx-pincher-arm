@@ -13,7 +13,8 @@ find_package(rclcpp REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
 
 add_library(phantomx_pincher_hardware SHARED
-  src/phantomx_pincher_hardware.cpp)
+  src/phantomx_pincher_hardware.cpp
+  src/arbotix_driver.cpp)
 target_include_directories(phantomx_pincher_hardware PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)

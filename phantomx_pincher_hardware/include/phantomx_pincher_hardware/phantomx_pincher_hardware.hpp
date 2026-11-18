@@ -10,6 +10,7 @@
 #include "rclcpp/macros.hpp"
 #include "rclcpp_lifecycle/node_interfaces/lifecycle_node_interface.hpp"
 #include "rclcpp_lifecycle/state.hpp"
+#include "phantomx_pincher_hardware/arbotix_driver.hpp"
 
 namespace phantomx_pincher_hardware
 {
@@ -43,6 +44,26 @@ public:
 private:
   std::string port_ = "/dev/ttyUSB0";
   int baud_rate_ = 57600;
+  
+  // Serial driver (from the professor's CPP_test, see README credits)
+  ArbotixDriver driver_;
+
+  // One entry per joint, in the order of the robot description:
+  // pan, shoulder lift, elbow, wrist, finger1, finger2
+  std::vector<uint8_t> servo_ids_ = {1, 2, 3, 4, 5, 5};
+  std::vector<int> neutral_ticks_ = {506, 510, 505, 512, 512, 512};
+
+  // Last raw reading of each servo, indexed by servo ID (index 0 unused)
+  std::vector<uint16_t> last_ticks_ = std::vector<uint16_t>(6, 0);
+  uint8_t next_servo_ = 1;   // we read one servo per cycle (serial is slow)
+  unsigned long cycle_count_ = 0;
+  bool initialised_ = false;   // true once the first reads of on_activate succeeded
+  int failures_ = 0;           // consecutive failed reads
+
+  // Gripper: PLACEHOLDER values, to be calibrated on the real arm
+  double gripper_closed_ticks_ = 400.0;
+  double gripper_open_ticks_ = 512.0;
+  double finger_max_opening_ = 0.0158;
 
   // One value per joint, in radians (the controller's language)
   std::vector<double> hw_positions_;
