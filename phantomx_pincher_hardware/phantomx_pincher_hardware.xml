@@ -1,0 +1,7 @@
+<library path="phantomx_pincher_hardware">
+  <class name="phantomx_pincher_hardware/PhantomxPincherHardware"
+         type="phantomx_pincher_hardware::PhantomxPincherHardware"
+         base_class_type="hardware_interface::SystemInterface">
+    <description>ros2_control system interface for the PhantomX Pincher arm (ArbotiX-M, AX-12A).</description>
+  </class>
+</library>
