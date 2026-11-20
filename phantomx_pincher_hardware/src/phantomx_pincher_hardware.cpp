@@ -138,6 +138,7 @@ PhantomxPincherHardware::CallbackReturn PhantomxPincherHardware::on_activate(
       driver_.write_register(id, 16, {1}) &&
       driver_.write_position(id, static_cast<uint16_t>(goal)) &&
       driver_.write_register(id, 32, {speed_low, speed_high}) &&
+      (id != 5 || driver_.write_register(id, 34, {0x5E, 0x01})) &&
       driver_.enable_torque(id, true);
     if (!ok) {
       RCLCPP_ERROR(logger, "Could not start servo %d safely, switching all torque off", id);
