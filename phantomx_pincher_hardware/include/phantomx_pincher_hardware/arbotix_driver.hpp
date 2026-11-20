@@ -22,6 +22,8 @@ public:
     bool is_open() const;
     void close();
     bool write_position(uint8_t servo_id, uint16_t position);
+        // Our addition: one broadcast packet that sets the goal of several servos (no replies)
+    bool sync_write_positions(const std::vector<uint8_t>& ids, const std::vector<uint16_t>& positions);
     bool read_position(uint8_t servo_id, uint16_t& position);
 
     bool read_register(uint8_t servo_id, uint8_t address, uint8_t length, std::vector<uint8_t> & data);

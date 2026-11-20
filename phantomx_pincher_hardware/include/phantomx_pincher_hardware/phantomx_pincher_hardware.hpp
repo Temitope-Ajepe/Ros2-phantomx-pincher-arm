@@ -64,6 +64,15 @@ private:
   double gripper_closed_ticks_ = 0.0;
   double gripper_open_ticks_ = 416.0;
   double finger_max_opening_ = 0.0158;
+  
+ // Safety clamp on the targets sent to the arm joints (radians, from the zero pose).
+  // Measured by moving the real arm by hand to its stops, minus ~10 degrees of margin.
+  std::vector<double> lower_limit_ = {-1.35, -1.45, -2.25, -1.70};
+  std::vector<double> upper_limit_ = { 1.35,  1.43,  2.25,  1.38};
+
+  // Moving speed written to each servo (AX-12A: 0 means MAXIMUM speed!)
+  uint16_t moving_speed_ = 60;
+  bool torque_on_ = false;   // true only after the safe start-up in on_activate
 
   // One value per joint, in radians (the controller's language)
   std::vector<double> hw_positions_;
@@ -72,4 +81,5 @@ private:
   std::vector<double> hw_commands_;
 };
 
-}  // namespace phantomx_pincher_hardware  
+}  // namespace phantomx_pincher_hardware
+

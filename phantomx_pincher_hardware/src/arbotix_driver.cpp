@@ -211,12 +211,6 @@ bool ArbotixDriver::write_bytes(const std::vector<uint8_t>& data)
 
     std::size_t total_written = 0;
 
-    std::cout << "[ArbotixDriver] TX:";
-
-    for (const uint8_t byte : data) {
-        std::cout << " " << std::uppercase << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(byte);
-    }
-    std::cout << std::dec << std::endl;
 
     while (total_written < data.size()) {
         const ssize_t n_written = ::write(serial_fd_, data.data() + total_written, data.size() - total_written);
@@ -439,6 +433,10 @@ bool ArbotixDriver::read_status_packet(uint8_t expected_id, std::vector<uint8_t>
                 return false;
             }
 
+            if (parameters.empty()) {  // bare write acknowledgement, not our answer: skip it
+                packet.erase(packet.begin(), packet.begin() + total_size);
+                continue;
+            }
             return true;
         }
     }
@@ -539,6 +537,36 @@ bool ArbotixDriver::write_position(uint8_t servo_id, uint16_t position) {
     return write_register(servo_id, 30, {low, high});
 }
 
+bool ArbotixDriver::sync_write_positions(
+    const std::vector<uint8_t>& ids, const std::vector<uint16_t>& positions) {
+    /*
+     * Dynamixel SYNC_WRITE (instruction 0x83) sent to the broadcast ID 0xFE.
+     * Nobody answers a broadcast, so the replies cannot collide with our next packet.
+     *
+     * FF FF FE LENGTH 83 ADDRESS DATA_LEN  [ID LOW HIGH] x N  CHECKSUM
+     * ADDRESS = 30 (goal position), DATA_LEN = 2 bytes per servo
+     * LENGTH = (DATA_LEN + 1) * N + 4
+     */
+    if (ids.empty() || ids.size() != positions.size()) {
+        return false;
+    }
+    const uint8_t n = static_cast<uint8_t>(ids.size());
+    const uint8_t packet_length = static_cast<uint8_t>(3 * n + 4);
+
+    std::vector<uint8_t> body{0xFE, packet_length, 0x83, 30, 2};
+    for (size_t i = 0; i < ids.size(); ++i) {
+        body.push_back(ids[i]);
+        body.push_back(static_cast<uint8_t>(positions[i] & 0xFF));
+        body.push_back(static_cast<uint8_t>((positions[i] >> 8) & 0xFF));
+    }
+
+    std::vector<uint8_t> packet{0xFF, 0xFF};
+    packet.insert(packet.end(), body.begin(), body.end());
+    packet.emplace_back(checksum(body));
+
+    return write_bytes(packet);
+}
+
 bool ArbotixDriver::read_position(uint8_t servo_id, uint16_t& position) {
     std::vector<uint8_t> data;
     if (!read_register(servo_id, 36, 2, data)) {
@@ -546,6 +574,8 @@ bool ArbotixDriver::read_position(uint8_t servo_id, uint16_t& position) {
     }
 
     if (data.size() != 2) {
+        std::cerr << "[ArbotixDriver] read_position: servo " << static_cast<int>(servo_id)
+                  << " answered with " << data.size() << " data bytes instead of 2" << std::endl;
         return false;
     }
     position = static_cast<uint16_t>(data[0]) | (static_cast<uint16_t>(data[1]) << 8);
