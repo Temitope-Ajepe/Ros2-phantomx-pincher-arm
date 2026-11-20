@@ -61,8 +61,8 @@ private:
   int failures_ = 0;           // consecutive failed reads
 
   // Gripper: PLACEHOLDER values, to be calibrated on the real arm
-  double gripper_closed_ticks_ = 400.0;
-  double gripper_open_ticks_ = 512.0;
+  double gripper_closed_ticks_ = 0.0;
+  double gripper_open_ticks_ = 416.0;
   double finger_max_opening_ = 0.0158;
 
   // One value per joint, in radians (the controller's language)
