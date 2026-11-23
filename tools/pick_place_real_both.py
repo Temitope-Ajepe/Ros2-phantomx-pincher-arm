@@ -34,8 +34,13 @@ time.sleep(2.0)
 
 def arm(name, deg):
     print(name, deg, flush=True)
-    m.move_to_configuration([radians(d) for d in deg])
-    m.wait_until_executed()
+    for attempt in range(3):
+        m.move_to_configuration([radians(d) for d in deg])
+        ok = m.wait_until_executed()
+        if ok is None or ok:
+            break
+        print("move failed, trying again", flush=True)
+        time.sleep(1.0)
     time.sleep(1.0)
 
 
